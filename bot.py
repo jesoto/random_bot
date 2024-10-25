@@ -1,45 +1,55 @@
 import os
-from dotenv import load_dotenv
+import requests
 from telegram import Update
-from telegram.ext import Updater, CommandHandler, CallbackContext
-import random
+from telegram.ext import Updater, MessageHandler, Filters, CallbackContext
+from dotenv import load_dotenv
 
-# Cargar las variables de entorno desde el archivo .env
+# Carga las variables de entorno desde el archivo .env
 load_dotenv()
+TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
+HUGGINGFACE_TOKEN = os.getenv('HUGGINGFACE_TOKEN')
 
-# Leer el token desde la variable de entorno
-TOKEN = os.getenv("BOT_TOKEN")
+# URL del modelo de Hugging Face
+HUGGINGFACE_MODEL_URL = "https://huggingface.co/TurkuNLP/gpt3-finnish-large"
 
-# Lista de mensajes aleatorios
-MESSAGES = [
-    "Believe in yourself!",
-    "Every day is a second chance.",
-    "You are stronger than you think.",
-    "Be kind, for everyone you meet is fighting a battle you know nothing about.",
-    "Never give up on your dreams!",
-    "Good things take time.",
-    "Stay positive, work hard, and make it happen."
-]
+# Función para obtener respuestas del modelo de Hugging Face
+def get_huggingface_response(prompt):
+    headers = {
+        "Authorization": f"Bearer {HUGGINGFACE_TOKEN}"
+    }
+    response = requests.post(HUGGINGFACE_MODEL_URL, headers=headers, json={"inputs": prompt})
 
-# Función para enviar un mensaje aleatorio
-def send_random_message(update: Update, context: CallbackContext) -> None:
-    message = random.choice(MESSAGES)
-    update.message.reply_text(message)
+    # Manejo de errores en la respuesta
+    if response.status_code == 200:
+        return response.json()
+    else:
+        return {"error": f"Error {response.status_code}: {response.text}"}
 
+# Función para manejar los mensajes del usuario
+def handle_message(update: Update, context: CallbackContext):
+    user_message = update.message.text
+    bot_response = get_huggingface_response(user_message)
+
+    # Manejar la respuesta del modelo
+    if isinstance(bot_response, list) and "generated_text" in bot_response[0]:
+        response_text = bot_response[0]["generated_text"]
+    elif "error" in bot_response:
+        response_text = bot_response["error"]
+    else:
+        response_text = "Lo siento, no pude obtener una respuesta."
+
+    update.message.reply_text(response_text)
+
+# Configuración del bot de Telegram
 def main():
-    # Crear un objeto Updater usando el token del bot
-    updater = Updater(TOKEN, use_context=True)
-    
-    # Obtener el dispatcher para registrar los handlers
-    dispatcher = updater.dispatcher
-    
-    # Registrar el handler para el comando /random
-    dispatcher.add_handler(CommandHandler("random", send_random_message))
-    
+    updater = Updater(TELEGRAM_TOKEN, use_context=True)
+    dp = updater.dispatcher
+
+    # Agregar manejadores de mensajes
+    dp.add_handler(MessageHandler(Filters.text & ~Filters.command, handle_message))
+
     # Iniciar el bot
     updater.start_polling()
-    
-    # Mantener el bot en ejecución hasta que se presione Ctrl+C
     updater.idle()
 
 if __name__ == '__main__':
